@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistem Absensi Pro v8.0 - GAS WebMaster</title>
+  
+  <!-- CSS & JS Peta (Leaflet) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- UI Framework (Bootstrap 5) -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- AI Library (Face-API.js) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  
+  <style>
+    body { background: #f0f2f5; font-family: 'Segoe UI', Tahoma, sans-serif; }
+    .main-container { max-width: 500px; margin: auto; padding: 15px; }
+    #video-container { position: relative; width: 100%; border-radius: 20px; overflow: hidden; background: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.2); line-height:0; }
+    video { width: 100%; height: auto; display: block; }
+    .nav-pills .nav-link { border-radius: 10px; font-weight: bold; font-size: 0.75rem; background: #fff; margin: 0 1px; color: #666; border: 1px solid #ddd; }
+    .nav-pills .nav-link.active { background-color: #0d6efd; color: white; border-color: #0d6efd; }
+    .page-section { display: none; }
+    .active-page { display: block; }
+    .btn-custom { padding: 12px; font-weight: bold; border-radius: 12px; transition: 0.3s; }
+    #map { height: 250px; width: 100%; border-radius: 15px; margin-bottom: 10px; border: 1px solid #ddd; z-index: 1; }
+    .table-responsive { font-size: 0.65rem; border-radius: 10px; }
+    .badge-status { font-size: 0.85rem; padding: 8px 15px; }
+  </style>
+</head>
+<body>
+
+<div class="main-container">
+  <!-- Navigasi Utama -->
+  <ul class="nav nav-pills nav-justified mb-3 p-1 bg-white rounded-4 shadow-sm">
+    <li class="nav-item"><a class="nav-link active" href="#" onclick="showPage('absen-page', this)">Absen</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" onclick="showPage('extra-page', this)">Fitur</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" onclick="showPage('riwayat-page', this)">Riwayat</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" onclick="showPage('daftar-page', this)">Daftar</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" onclick="showPage('admin-page', this)">Admin</a></li>
+  </ul>
+
+  <!-- Bagian Kamera -->
+  <div id="cam-section">
+    <div id="video-container" class="mb-3">
+        <video id="video" autoplay muted playsinline></video>
+    </div>
+    <div class="text-center mb-4">
+      <span id="status" class="badge-status badge rounded-pill bg-secondary text-white shadow-sm">Inisialisasi AI...</span>
+    </div>
+  </div>
+
+  <!-- HALAMAN 1: ABSENSI DASAR -->
+  <div id="absen-page" class="page-section active-page">
+    <div class="row g-2">
+      <div class="col-6"><button id="btnMasuk" class="btn btn-success btn-custom w-100 shadow-sm" onclick="processTask('attendance','MASUK')" disabled>MASUK</button></div>
+      <div class="col-6"><button id="btnPulang" class="btn btn-danger btn-custom w-100 shadow-sm" onclick="processTask('attendance','PULANG')" disabled>PULANG</button></div>
+    </div>
+  </div>
+
+  <!-- HALAMAN 2: FITUR (LEMBUR/AKTIVITAS/IZIN) -->
+  <div id="extra-page" class="page-section">
+    <div class="card border-0 shadow-sm p-3 rounded-4 mb-3">
+      <label class="small fw-bold mb-1">Pilih Kategori:</label>
+      <select id="extraType" class="form-select mb-3 small" onchange="toggleExtraInput()">
+        <option value="lembur">Lembur</option>
+        <option value="aktivitas">Aktivitas</option>
+        <option value="izin">Izin / Sakit</option>
+      </select>
+
+      <label class="small fw-bold mb-1">Keterangan:</label>
+      <!-- Input Teks (Default untuk Lembur/Aktivitas) -->
+      <input type="text" id="extraKet" class="form-control mb-3 small" placeholder="Tulis tugas/kegiatan...">
+      
+      <!-- Dropdown (Hanya muncul jika pilih Izin/Sakit) -->
+      <select id="extraKetSelect" class="form-select mb-3 small" style="display:none;">
+        <option value="Sakit dengan SKD">Sakit dengan SKD</option>
+        <option value="Sakit tanpa SKD">Sakit tanpa SKD</option>
+        <option value="Izin Pribadi">Izin Pribadi</option>
+        <option value="Alpha">Alpha</option>
+        <option value="Cuti Resmi">Cuti Resmi</option>
+      </select>
+
+      <button id="btnExtra" class="btn btn-primary btn-custom w-100" onclick="handleExtra()" disabled>KIRIM LAPORAN</button>
+    </div>
+  </div>
+
+  <!-- HALAMAN 3: RIWAYAT TERPADU -->
+  <div id="riwayat-page" class="page-section">
+    <ul class="nav nav-tabs nav-justified mb-2" id="histTab">
+      <li class="nav-item"><a class="nav-link active small" onclick="loadHist('Log_Absensi',this)">Absen</a></li>
+      <li class="nav-item"><a class="nav-link small" onclick="loadHist('Log_Lembur',this)">Lembur</a></li>
+      <li class="nav-item"><a class="nav-link small" onclick="loadHist('Log_Izin',this)">Izin</a></li>
+    </ul>
+    <div class="table-responsive bg-white p-1 rounded shadow-sm">
+      <table class="table table-sm table-striped mb-0">
+          <thead class="table-dark" id="hHead"></thead>
+          <tbody id="hBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- HALAMAN 4: DAFTAR PEGAWAI -->
+  <div id="daftar-page" class="page-section">
+    <div class="card border-0 shadow-sm p-4 rounded-4">
+      <h6 class="fw-bold mb-3 text-center">Registrasi Wajah</h6>
+      <input type="text" id="regNama" class="form-control mb-2" placeholder="Nama Lengkap">
+      <input type="text" id="regNIK" class="form-control mb-2" placeholder="NIK">
+      <input type="text" id="regDivisi" class="form-control mb-3" placeholder="Divisi">
+      <button id="btnReg" class="btn btn-primary btn-custom w-100 shadow-sm" onclick="register()">SIMPAN WAJAH</button>
+    </div>
+  </div>
+
+  <!-- HALAMAN 5: ADMIN (SET LOKASI) -->
+  <div id="admin-page" class="page-section">
+    <div class="card border-0 shadow-sm p-4 rounded-4">
+      <div id="admin-auth">
+        <h6 class="fw-bold mb-3 text-center">Panel Keamanan</h6>
+        <input type="password" id="adminPin" class="form-control mb-2" placeholder="PIN Admin">
+        <button class="btn btn-dark w-100" onclick="authAdmin()">Login</button>
+      </div>
+      <div id="admin-content" style="display:none;">
+        <div id="map"></div>
+        <input type="text" id="offName" class="form-control mb-2 small" placeholder="Nama Lokasi/Cabang">
+        <input type="hidden" id="offLat"><input type="hidden" id="offLon">
+        <input type="number" id="offRad" class="form-control mb-3 small" placeholder="Radius (Meter) misal: 100">
+        <button class="btn btn-primary w-100 btn-sm shadow-sm" onclick="addOffice()">SIMPAN LOKASI</button>
+      </div>
+    </div>
+  </div>
+
+  <p class="text-center mt-5 text-muted" style="font-size: 10px;">Powered by GAS-WebMaster v8.0 (Turbo Accuracy)</p>
+</div>
+
+<script>
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbx3R8nxsuV_mSHreXsyUTW-K9pR-uXpYcSRyhfe7COikX-68TiWwJYyXopEi0o14EkkQA/exec"; 
+  let labeledDescriptors = [], officeLocations = [], map, adminMarker;
+  const video = document.getElementById('video'), status = document.getElementById('status');
+  const actionBtns = [document.getElementById('btnMasuk'), document.getElementById('btnPulang'), document.getElementById('btnExtra')];
+
+  // 1. Fungsi Navigasi & UI
+  function showPage(p, el) {
+    document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active-page'));
+    document.getElementById(p).classList.add('active-page');
+    document.querySelectorAll('.nav-link').forEach(n => n.classList.remove('active')); 
+    el.classList.add('active');
+    
+    document.getElementById('cam-section').style.display = (p === 'riwayat-page' || p === 'admin-page') ? 'none' : 'block';
+    
+    if(p === 'riwayat-page') loadHist('Log_Absensi', document.querySelector('#histTab a'));
+    if(p === 'admin-page') initMap();
+  }
+
+  function toggleExtraInput() {
+    const type = document.getElementById('extraType').value;
+    document.getElementById('extraKet').style.display = (type === 'izin') ? 'none' : 'block';
+    document.getElementById('extraKetSelect').style.display = (type === 'izin') ? 'block' : 'none';
+  }
+
+  // 2. Inisialisasi AI & Kamera (Turbo Load)
+  async function init() {
+    const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
+    try {
+      updateStatus("SINKRON DATA...", "warning");
+      const [stream] = await Promise.all([
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } }),
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+      ]);
+      video.srcObject = stream;
+      
+      const [resF, resO] = await Promise.all([
+        fetch(GAS_URL,{method:"POST", body:JSON.stringify({action:"getFaces"})}).then(r=>r.json()),
+        fetch(GAS_URL,{method:"POST", body:JSON.stringify({action:"getOffices"})}).then(r=>r.json())
+      ]);
+
+      labeledDescriptors = resF.map(d => new faceapi.LabeledFaceDescriptors(d.name, [new Float32Array(d.descriptor)]));
+      officeLocations = resO; 
+      checkLoc();
+    } catch (e) { updateStatus("KONEKSI GAGAL", "danger"); console.error(e); }
+  }
+
+  // 3. Logika Geofencing Presisi
+  function checkLoc() {
+    updateStatus("MENCARI GPS...", "warning");
+    navigator.geolocation.getCurrentPosition(pos => {
+      const uLat = pos.coords.latitude, uLon = pos.coords.longitude;
+      let minDistance = Infinity, nearest = null;
+
+      officeLocations.forEach(o => {
+        const dLat = (o.lat - uLat) * Math.PI / 180, dLon = (o.lon - uLon) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(uLat*Math.PI/180)*Math.cos(o.lat*Math.PI/180)*Math.sin(dLon/2)**2;
+        const d = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        if (d < minDistance) { minDistance = d; nearest = o; }
+      });
+
+      if(nearest && minDistance <= nearest.rad) {
+        updateStatus("LOKASI: "+nearest.name, "success");
+        actionBtns.forEach(b => b.disabled = false);
+      } else {
+        updateStatus("DI LUAR RADIUS", "danger");
+        if(officeLocations.length > 0) alert(`Anda di luar area!\nJarak Anda: ${Math.round(minDistance)}m\nBatas: ${nearest ? nearest.rad : 0}m`);
+      }
+    }, () => alert("GPS Gagal! Aktifkan Lokasi."), {enableHighAccuracy:true, timeout:10000});
+  }
+
+  // 4. Proses Core (Absen & Fitur)
+  async function processTask(action, type, ket="") {
+    if(labeledDescriptors.length === 0) return alert("Database wajah kosong!");
+    actionBtns.forEach(b => b.disabled = true);
+    updateStatus("SCANNING...", "warning");
+
+    const d = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+    if(!d) { alert("Wajah tidak terlihat!"); resetUI(); return; }
+
+    const match = new faceapi.FaceMatcher(labeledDescriptors, 0.6).findBestMatch(d.descriptor);
+    if(match.label === 'unknown') { alert("Wajah tidak dikenal!"); resetUI(); }
+    else {
+      navigator.geolocation.getCurrentPosition(async p => {
+        updateStatus("MENYIMPAN...", "info");
+        const res = await fetch(GAS_URL,{method:"POST", body:JSON.stringify({action, name:match.label, type, ket, location:p.coords.latitude+","+p.coords.longitude})}).then(r=>r.json());
+        alert(`✅ ${res.message}\nNama: ${match.label}`); 
+        resetUI();
+        if(action !== 'attendance') location.reload();
+      });
+    }
+  }
+
+  function handleExtra() {
+    const type = document.getElementById('extraType').value;
+    const ket = (type === 'izin') ? document.getElementById('extraKetSelect').value : document.getElementById('extraKet').value;
+    if(!ket && type !== 'izin') return alert("Harap isi keterangan!");
+    processTask(type, type.toUpperCase(), ket);
+  }
+
+  // 5. Riwayat & Database
+  async function loadHist(s, el) {
+    document.querySelectorAll('#histTab a').forEach(a=>a.classList.remove('active')); el.classList.add('active');
+    const hB = document.getElementById('hBody'), hH = document.getElementById('hHead');
+    hB.innerHTML = '<tr><td colspan="6" class="text-center">Memuat...</td></tr>';
+    const logs = await fetch(GAS_URL,{method:"POST",body:JSON.stringify({action:"getLogs",sheet:s})}).then(r=>r.json());
+    if(logs.length > 0) {
+      hH.innerHTML = '<tr>' + logs[0].map(h=>`<th>${h}</th>`).join('') + '</tr>';
+      hB.innerHTML = logs.slice(1).map(r => '<tr>' + r.map(c => c.includes(',')?`<td><a href="https://maps.google.com/?q=${c}" target="_blank">Map</a></td>`:`<td>${c}</td>`).join('') + '</tr>').join('');
+    } else hB.innerHTML = '<tr><td colspan="6" class="text-center">Kosong</td></tr>';
+  }
+
+  async function register() {
+    const n = document.getElementById('regNama').value, ni = document.getElementById('regNIK').value, dv = document.getElementById('regDivisi').value;
+    if(!n || !ni || !dv) return alert("Lengkapi data!");
+    updateStatus("MEREKAM...", "warning");
+    const d = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+    if(d) {
+      const res = await fetch(GAS_URL, {method:"POST", body:JSON.stringify({action: "register", name:n, nik:ni, divisi:dv, descriptor:Array.from(d.descriptor)})}).then(r=>r.json());
+      alert(res.message); location.reload();
+    } else alert("Gagal merekam wajah!");
+  }
+
+  // 6. Admin & Map
+  function authAdmin() { 
+    if(document.getElementById('adminPin').value === "123456") { 
+      document.getElementById('admin-auth').style.display='none'; 
+      document.getElementById('admin-content').style.display='block'; 
+      setTimeout(()=>map.invalidateSize(), 400); 
+    } else alert("Salah!"); 
+  }
+  
+  function initMap() {
+    if (map) return;
+    map = L.map('map').setView([-6.2, 106.8], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    map.on('click', e => {
+      if (adminMarker) adminMarker.setLatLng(e.latlng); else adminMarker = L.marker(e.latlng).addTo(map);
+      document.getElementById('offLat').value = e.latlng.lat; document.getElementById('offLon').value = e.latlng.lng;
+    });
+    navigator.geolocation.getCurrentPosition(p => map.setView([p.coords.latitude, p.coords.longitude], 16));
+  }
+
+  async function addOffice() {
+    const d = { name: document.getElementById('offName').value, lat: document.getElementById('offLat').value, lon: document.getElementById('offLon').value, rad: document.getElementById('offRad').value };
+    if(!d.lat || !d.name) return alert("Pilih lokasi di peta!");
+    const res = await fetch(GAS_URL,{method:"POST", body:JSON.stringify({action:"saveOffice", pin:"123456", data:d})}).then(r=>r.json());
+    alert(res.message); location.reload();
+  }
+
+  function resetUI() { actionBtns.forEach(b => b.disabled = false); updateStatus("SISTEM SIAP", "success"); }
+  function updateStatus(t, c) { status.innerText = t; status.className = "badge-status badge rounded-pill bg-"+c+" px-3 py-2 text-white shadow-sm"; }
+  
+  window.onload = init;
+</script>
+</body>
+</html>
